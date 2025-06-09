@@ -1,0 +1,95 @@
+#include <Servo.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// Define pins for ESP8266
+const int trigPin = D5;       // Ultrasonic sensor TRIG pin
+const int echoPin = D6;       // Ultrasonic sensor ECHO pin
+const int moisturePin = A0;   // Soil moisture sensor pin
+const int servoPin = D4;      // Servo motor control pin
+
+// Constants for moisture levels (can be adjusted based on sensor readings)
+const int dryThreshold = 800; // Threshold for dry waste (analog reading)
+
+// Initialize Servo and LCD
+Servo myServo;
+LiquidCrystal_I2C lcd(0x27, 16, 2); // Adjust I2C address based on your LCD module
+
+// Function to get distance from the ultrasonic sensor
+long getDistance() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH);
+  long distance = (duration * 0.034) / 2; // Convert to centimeters
+  return distance;
+}
+
+// Function to get the average moisture reading to filter noise
+
+void setup() {
+  // Setup serial communication and pins
+  pinMode(A0, INPUT);
+  Serial.begin(9600);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  
+  // Setup servo and LCD
+  myServo.attach(2, 500, 2400);
+  myServo.write(90);  // Servo starts in neutral position
+  Wire.begin(D1, D2);
+  lcd.begin(16, 2);
+  lcd.backlight();
+  
+  lcd.setCursor(0, 0);
+  lcd.print("Dustbin Ready");
+  delay(2000);
+}
+
+void loop() {
+  long distance = getDistance();
+  // Ensure waste is near for a sustained period (e.g., 1 second) to avoid false triggers
+  if (distance <= 15) {
+    delay(1000);  // Wait for half a second to confirm detection
+    distance = getDistance(); // Recheck the distance
+    if (distance <= 15) {     // If still within range, proceed
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Waste Detected");
+      int MoistureValue = analogRead(A0);
+      // Disable ultrasonic sensor temporarily to avoid false detection from flap
+      digitalWrite(trigPin, LOW);
+      // Get averaged moisture value to filter noise
+      Serial.print("Moisture Value: ");
+      Serial.println(MoistureValue);
+      // Sort the waste based on the moisture reading
+      if (MoistureValue > dryThreshold) {
+        // Dry waste detected
+        lcd.setCursor(0, 1);
+        lcd.print("Dry Waste");
+        myServo.write(30); // Rotate to 135° for dry waste
+        delay(1000);        // Give time for servo to complete movement
+      } else {
+        lcd.setCursor(0, 1);
+        lcd.print("Wet Waste");
+        myServo.write(160);  // Rotate to 45° for wet waste
+        delay(2000);        // Give time for servo to complete movement
+      } 
+      
+      // Reset servo to neutral position and delay to allow the flap to settle
+      myServo.write(90); // Neutral position (0°)
+      delay(1000);      // Wait for the servo to reset
+      
+      // Re-enable the ultrasonic sensor after the servo operation and flap settling
+      delay(1000);      // Additional delay to avoid flap interference
+      digitalWrite(trigPin, HIGH);
+
+      // Clear the LCD display for the next cycle
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Dustbin Ready");
+    }
+  }
+}
